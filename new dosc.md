@@ -546,8 +546,8 @@ Caller                    Server                    Other Members
   │                          │── group_call_ended (if empty)►│
 ```
 
-##CODE
-```
+## CODE
+```js
     //==========================================mediasoup Group Call (room / SFU)===========================================
     socket.on(
       "createRoom",
