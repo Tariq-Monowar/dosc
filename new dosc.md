@@ -30,7 +30,8 @@
 | 8 | `getProducers` | `⇄` | *(no payload)* | `{ producers: Producer[] }` |
 | 9 | `consume` | `⇄` | `{ transportId, producerId, rtpCapabilities }` | `{ id, producerId, kind, rtpParameters }` or `{ error }` |
 | 10 | `resumeConsumer` | `⇄` | `{ consumerId: string }` | `{ success: true }` or `{ error }` |
-| 11 | `leaveRoom` | `→` | *(no payload)* | — |
+| 11 | `media_state_change` | `→` | `{ video: bool, audio: bool }` | — |
+| 12 | `leaveRoom` | `→` | *(no payload)* | — |
 
 ---
 
@@ -44,8 +45,9 @@
 | 4 | `group_call_ended` | Last person leaves the room | `{ conversationId }` |
 | 5 | `group_call_error` | Call initiation failed | `{ message: string }` |
 | 6 | `newProducer` | Someone in the room starts sending audio/video | `{ producerId, kind, socketId, participantInfo* }` |
-| 7 | `participantLeft` | Someone in the room disconnects or leaves | `{ socketId: string }` |
-| 8 | `online-users` | Any user connects or disconnects | `string[]` — array of online userIds |
+| 7 | `media_state_change` | Someone in the room changes their camera/mic state | `{ video, audio, conversationId, socketId, userInfo }` |
+| 8 | `participantLeft` | Someone in the room disconnects or leaves | `{ socketId: string }` |
+| 9 | `online-users` | Any user connects or disconnects | `string[]` — array of online userIds |
 
 ---
 
@@ -153,6 +155,15 @@ success: true
 error: string
 ```
 
+### `media_state_change` → payload
+```
+video: boolean    // true = camera ON,  false = camera OFF
+audio: boolean    // true = mic ON,     false = mic muted
+```
+
+> Send both `video` and `audio` together every time either one changes.  
+> The server broadcasts the **same event name** back to everyone else — one listener covers both states.
+
 ---
 
 ## 4. Received Event Payload Types
@@ -193,6 +204,19 @@ producerId:      string
 kind:            "audio" | "video"
 socketId:        string
 participantInfo: ParticipantInfo | undefined
+```
+
+### `media_state_change` *(received from others)*
+```
+video:          boolean        // true = camera ON,  false = camera OFF
+audio:          boolean        // true = mic ON,     false = muted
+conversationId: string         // which room this came from
+socketId:       string         // socket of the person who changed state
+userInfo: {
+  userId: string
+  name:   string
+  avatar: string | null        // full URL or null
+}
 ```
 
 ### `participantLeft`
@@ -282,6 +306,11 @@ New person joins     ←                         ←  newProducer
                      →   consume ⇄             ←  consumer params (ack)
                      →   resumeConsumer ⇄      ←  success (ack)
 
+Toggle camera/mic    →   media_state_change({ video, audio })
+                     ←                         ←  media_state_change (to others, same event name)
+
+Someone else toggles ←                         ←  media_state_change
+
 Someone leaves       ←                         ←  participantLeft
 Last person leaves   ←                         ←  group_call_ended
 
@@ -314,7 +343,15 @@ socket.emit('createRoom', { roomId }, (res) => {
 | `consume` | `"Participant not found"`, `"Producer not found"`, `"Cannot consume own producer"`, `"RTP capabilities mismatch"`, `"Receive transport not found"` |
 | `resumeConsumer` | `"Participant not found"`, `"Consumer not found"` |
 | `get_active_calls` | `"Not joined"`, `"Invalid user id"` |
+| `media_state_change` (emit) | *(silently ignored if not in a room — no error returned)* |
 | `group_call_error` event | `"You are not in this group"`, `"Invalid caller id"` |
+
+
+
+
+
+
+
 
 
 
