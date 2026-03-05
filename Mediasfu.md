@@ -12,16 +12,17 @@ One guide for integrating **group video/audio calls** in the Threads app. Covers
 ## Table of Contents
 
 1. [Overview](#1-overview)
-2. [Prerequisites](#2-prerequisites)
-3. [Connection & First Steps](#3-connection--first-steps)
-4. [Events You Emit](#4-events-you-emit)
-5. [Events You Listen To](#5-events-you-listen-to)
-6. [Push Notifications (FCM)](#6-push-notifications-fcm)
-7. [Data Types (TypeScript-friendly)](#7-data-types-typescript-friendly)
-8. [Call Flows](#8-call-flows)
-9. [MediaSoup: Joining the Room](#9-mediasoup-joining-the-room)
-10. [Errors](#10-errors)
-11. [Quick Reference Table](#11-quick-reference-table)
+2. [Send vs Receive (what you send / what you get)](#2-send-vs-receive-what-you-send--what-you-get)
+3. [Prerequisites](#3-prerequisites)
+4. [Connection & First Steps](#4-connection--first-steps)
+5. [Events You Emit](#5-events-you-emit)
+6. [Events You Listen To](#6-events-you-listen-to)
+7. [Push Notifications (FCM)](#7-push-notifications-fcm)
+8. [Data Types (TypeScript-friendly)](#8-data-types-typescript-friendly)
+9. [Call Flows](#9-call-flows)
+10. [MediaSoup: Joining the Room](#10-mediasoup-joining-the-room)
+11. [Errors](#11-errors)
+12. [Quick Reference Table](#12-quick-reference-table)
 
 ---
 
@@ -34,7 +35,52 @@ One guide for integrating **group video/audio calls** in the Threads app. Covers
 
 ---
 
-## 2. Prerequisites
+## 2. Send vs Receive (what you send / what you get)
+
+Use this as the single place to see **what data you send** and **what data you get** for each event.
+
+### Events where YOU send (emit) and get a response in the callback
+
+| Event | **Data you SEND** | **Data you GET** (in callback) |
+|-------|-------------------|----------------------------------|
+| **join** | `userId` (string), e.g. `"42"` | — (no callback) |
+| **get_active_calls** | `{}` or nothing | `{ calls: ActiveCall[] }` or `{ error: string }` |
+| **group_call_initiate** | `{ callerId, conversationId, callType }` | — (no callback) |
+| **createRoom** | `{ roomId: string }` (conversation ID) | `{ rtpCapabilities }` or `{ error: string }` |
+| **createTransport** | `{ type: 'send' }` or `{ type: 'recv' }` | `{ id, iceParameters, iceCandidates, dtlsParameters }` or `{ error: string }` |
+| **connectTransport** | `{ transportId, dtlsParameters }` | `{ success: true }` or `{ error: string }` |
+| **produce** | `{ transportId, kind, rtpParameters }` | `{ id: string }` (producer id) or `{ error: string }` |
+| **getProducers** | (no payload) | `{ producers: Producer[] }` or `{ error: string }` |
+| **consume** | `{ transportId, producerId, rtpCapabilities }` | `{ id, producerId, kind, rtpParameters }` or `{ error: string }` |
+| **resumeConsumer** | `{ consumerId }` | `{ success: true }` or `{ error: string }` |
+| **media_state_change** | `{ video: boolean, audio: boolean }` | — (no callback) |
+| **leaveRoom** | (no payload) | — (no callback) |
+
+### Events where the SERVER sends and YOU only receive (you don’t emit these)
+
+| Event | **Data you GET** (from server) |
+|-------|--------------------------------|
+| **active_group_calls** | `{ calls: Array<{ conversationId, conversationInfo, participantCount }> }` |
+| **group_call_incoming** | `{ callerId, conversationId, callType, callerInfo, conversationInfo }` |
+| **group_call_started** | `{ conversationId, conversationInfo }` (sometimes also `callerInfo`) |
+| **group_call_ended** | `{ conversationId }` |
+| **group_call_error** | `{ message: string }` |
+| **newProducer** | `{ producerId, kind, socketId, participantInfo? }` |
+| **media_state_change** | `{ video, audio, conversationId, socketId, userInfo }` |
+| **participantLeft** | `{ socketId }` |
+| **online-users** | `string[]` (list of online user IDs) |
+
+### Object shapes you GET (from the tables above)
+
+- **ActiveCall:** `{ conversationId: string, conversationInfo: ConversationInfo, participantCount: number }`
+- **ConversationInfo:** `{ id: string, name: string, avatar: string \| null }`
+- **CallerInfo:** `{ id: number, name: string, avatar: string \| null }`
+- **ParticipantInfo / userInfo:** `{ userId: string, name: string, avatar: string \| null }`
+- **Producer:** `{ id: string, kind: 'audio' \| 'video', socketId: string, participantInfo?: ParticipantInfo }`
+
+---
+
+## 3. Prerequisites
 
 | Dependency | Purpose |
 |------------|--------|
@@ -46,13 +92,13 @@ npm install socket.io-client mediasoup-client
 ```
 
 - **Backend:** The Socket.IO server must be running and reachable at the URL you use in the client (same backend that serves your API).
-- **Required before any group call step:** Connect to the server and emit `join` with the current user’s ID (see [Connection](#3-connection--first-steps)). No group-call or `get_active_calls` logic will work until after `join` has been emitted.
+- **Required before any group call step:** Connect to the server and emit `join` with the current user’s ID (see [Connection](#4-connection--first-steps)). No group-call or `get_active_calls` logic will work until after `join` has been emitted.
 
 ---
 
-## 3. Connection & First Steps
+## 4. Connection & First Steps
 
-### 3.1 Connect and register
+### 4.1 Connect and register
 
 ```ts
 import io from 'socket.io-client';
@@ -70,7 +116,7 @@ socket.on('connect', () => {
 - You **must** call `socket.emit('join', userId)` after connect before using any group-call or `get_active_calls` logic.
 - The server uses `userId` to route events and to know which conversations the user is in.
 
-### 3.2 Active calls on app open
+### 4.2 Active calls on app open
 
 After `join`, the server may send **once** the list of group calls already running in the user’s conversations (no extra request needed):
 
@@ -84,15 +130,15 @@ socket.on('active_group_calls', (data: { calls: ActiveCall[] }) => {
 ```
 
 - If there are no active calls, this event is **not** emitted.
-- For an explicit refresh (e.g. pull-to-refresh), use `get_active_calls` with a callback (see [Events You Emit](#4-events-you-emit)).
+- For an explicit refresh (e.g. pull-to-refresh), use `get_active_calls` with a callback (see [Events You Emit](#5-events-you-emit)).
 
 ---
 
-## 4. Events You Emit
+## 5. Events You Emit
 
 All group-call-related events you send to the server. **Use the exact payload and callback shapes below; do not omit or rename fields.**
 
-### 4.1 Table
+### 5.1 Table
 
 | Event | Payload (exact) | Callback (if any) |
 |-------|-----------------|-------------------|
@@ -109,7 +155,7 @@ All group-call-related events you send to the server. **Use the exact payload an
 | `media_state_change` | `{ video: boolean, audio: boolean }` — send both every time either changes | None |
 | `leaveRoom` | No payload | None |
 
-### 4.2 Exact callback response shapes
+### 5.2 Exact callback response shapes
 
 **createRoom**  
 Callback receives one of:
@@ -128,7 +174,7 @@ Callback receives one of:
   Pass this to `recvTransport.consume({ id, producerId, kind, rtpParameters })`. Then call `resumeConsumer` with `consumerId: id`.
 - Error: `{ error: string }`
 
-### 4.3 Example: createRoom and getProducers
+### 5.3 Example: createRoom and getProducers
 
 ```ts
 // createRoom — roomId is the conversation ID
@@ -151,7 +197,7 @@ socket.emit('getProducers', (res: { producers?: Producer[]; error?: string }) =>
 
 ---
 
-## 5. Events You Listen To
+## 6. Events You Listen To
 
 All group-call-related events the server sends to the client. **Payload shapes are exact; use these types.**
 
@@ -176,22 +222,22 @@ All group-call-related events the server sends to the client. **Payload shapes a
 
 ---
 
-## 6. Push Notifications (FCM)
+## 7. Push Notifications (FCM)
 
 When someone starts a group call, the server sends a **Firebase Cloud Messaging (FCM) data message** to every other member of the conversation (including when the app is in background or killed). Use it to show an incoming-call UI with the same info as `group_call_incoming`.
 
-### 6.1 When the server sends it
+### 7.1 When the server sends it
 
 - On `group_call_initiate`: for each member **except the caller**, the server sends one FCM message (to all of that user’s FCM tokens). So as a frontend you may receive one or more messages per call invite.
 
-### 6.2 Where to read the payload
+### 7.2 Where to read the payload
 
 - In your FCM handler you receive a **remote message** object. The **data** part is a flat map: all keys and values are strings.
 - Check `message.data.type === 'group_call_initiate'` to treat it as a group call.
 - Use `message.data.conversationId` directly (string).
 - The key `message.data.data` is a **JSON string**. Parse it once: `const payload = JSON.parse(message.data.data)`.
 
-### 6.3 Data keys (all strings in `message.data`)
+### 7.3 Data keys (all strings in `message.data`)
 
 | Key in `message.data` | Meaning |
 |------------------------|--------|
@@ -202,7 +248,7 @@ When someone starts a group call, the server sends a **Firebase Cloud Messaging 
 | `conversationId` | Conversation ID — **use this to join the call** when user taps Accept |
 | `data` | JSON string — parse with `JSON.parse(message.data.data)` |
 
-### 6.4 Shape of parsed `data` (after JSON.parse(message.data.data))
+### 7.4 Shape of parsed `data` (after JSON.parse(message.data.data))
 
 ```ts
 {
@@ -216,16 +262,16 @@ When someone starts a group call, the server sends a **Firebase Cloud Messaging 
 
 Use `callerInfo` and `conversationInfo` for the incoming-call screen (name, avatar). Use `conversationId` when the user taps Accept to run your join-room flow.
 
-### 6.5 What to do in the app
+### 7.5 What to do in the app
 
 - **App in foreground:** Prefer the socket event `group_call_incoming` (same data shape). You can ignore or dedupe the FCM message if you already showed the UI from the socket.
-- **App in background or killed:** Handle only the FCM data message: if `type === 'group_call_initiate'`, parse `data`, show incoming-call UI. On Accept: open app, connect Socket.IO, call `join(userId)`, then run the [MediaSoup join flow](#9-mediasoup-joining-the-room) with `conversationId` from the payload.
+- **App in background or killed:** Handle only the FCM data message: if `type === 'group_call_initiate'`, parse `data`, show incoming-call UI. On Accept: open app, connect Socket.IO, call `join(userId)`, then run the [MediaSoup join flow](#10-mediasoup-joining-the-room) with `conversationId` from the payload.
 
 Push is only for **notifying**; joining and media use Socket.IO + MediaSoup.
 
 ---
 
-## 7. Data Types (TypeScript-friendly)
+## 8. Data Types (TypeScript-friendly)
 
 Use these for typing payloads and handlers.
 
@@ -276,32 +322,32 @@ interface MediaStateChangePayload {
 
 ---
 
-## 8. Call Flows
+## 9. Call Flows
 
-“Join room” below means: run the full [MediaSoup: Joining the Room](#9-mediasoup-joining-the-room) sequence (createRoom → load device → create transports → produce → getProducers → consume each → handle newProducer) using the given `conversationId` as `roomId`.
+“Join room” below means: run the full [MediaSoup: Joining the Room](#10-mediasoup-joining-the-room) sequence (createRoom → load device → create transports → produce → getProducers → consume each → handle newProducer) using the given `conversationId` as `roomId`.
 
-### 8.1 You start a call
+### 9.1 You start a call
 
 1. Emit: `socket.emit('group_call_initiate', { callerId: currentUserId, conversationId, callType: 'video' | 'audio' })`.
-2. Immediately run the **join room** flow (Section 9) with this same `conversationId`.
+2. Immediately run the **join room** flow (Section 10) with this same `conversationId`.
 3. Other members get `group_call_incoming` (socket) and/or FCM with `type: 'group_call_initiate'`. When the first participant (you) enters the room, everyone gets `group_call_started`.
 
-### 8.2 Someone else starts a call (you receive)
+### 9.2 Someone else starts a call (you receive)
 
-- **App in foreground:** On `group_call_incoming`, show incoming-call UI using `callerInfo` and `conversationInfo`. When the user taps **Accept**, run the **join room** flow (Section 9) with `data.conversationId`.
+- **App in foreground:** On `group_call_incoming`, show incoming-call UI using `callerInfo` and `conversationInfo`. When the user taps **Accept**, run the **join room** flow (Section 10) with `data.conversationId`.
 - **App in background or killed:** On FCM with `type === 'group_call_initiate'`, parse `message.data.data` and show the same UI. When the user taps **Accept**, open the app, connect the socket, emit `join(userId)`, then run the **join room** flow with `conversationId` from the parsed payload.
 
-### 8.3 You join a call already in progress
+### 9.3 You join a call already in progress
 
-- You already have a `conversationId` from `group_call_started` or from `active_group_calls` (e.g. user tapped a “Join call” banner). When the user taps **Join**, run the **join room** flow (Section 9) with that `conversationId`. The flow includes `getProducers` and consuming each existing producer.
+- You already have a `conversationId` from `group_call_started` or from `active_group_calls` (e.g. user tapped a “Join call” banner). When the user taps **Join**, run the **join room** flow (Section 10) with that `conversationId`. The flow includes `getProducers` and consuming each existing producer.
 
-### 8.4 You leave the call
+### 9.4 You leave the call
 
 - Run your leave cleanup (stop tracks, close producers/consumers/transports), then emit `socket.emit('leaveRoom')`. Other participants receive `participantLeft` with your `socketId`. If you were the last in the room, everyone (including you) receives `group_call_ended` with that `conversationId`.
 
 ---
 
-## 9. MediaSoup: Joining the Room
+## 10. MediaSoup: Joining the Room
 
 Follow this order exactly. You must have: socket connected, `join(userId)` already emitted, and the `conversationId` for the call.
 
@@ -364,7 +410,7 @@ Follow this order exactly. You must have: socket connected, `join(userId)` alrea
 
 ---
 
-## 10. Errors
+## 11. Errors
 
 Every emit that takes a callback can receive `{ error: string }` instead of success. Always check `res.error` and handle it (e.g. show a toast or retry); do not assume success.
 
@@ -388,7 +434,7 @@ Every emit that takes a callback can receive `{ error: string }` instead of succ
 
 ---
 
-## 11. Quick Reference Table
+## 12. Quick Reference Table
 
 **Emit (client → server)** — use these exact payloads.
 
