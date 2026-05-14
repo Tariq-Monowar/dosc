@@ -1,24 +1,31 @@
 # রেফারেন্স শু প্রশ্ন–উত্তর (Q/A) সিস্টেম — বুঝুন ও Postman দিয়ে টেস্ট করুন
 
-তোমার সার্ভারের ঠিকানার পরে বেস URL (Postman এ `{{baseUrl}}` ভেরিয়েবল রাখতে পারো):
+Postman এ **Environment** খুলে দুটো ভেরিয়েবল রাখো (নাম ঠিক এইরকম হলে নিচের ডেমো গুলো একদম কপি–পেস্ট হবে):
 
-**প্রশ্ন ক্যাটালগ (অ্যাডমিন CRUD):**
+| ভেরিয়েবল | উদাহরণ | মন্তব্য |
+|-----------|--------|--------|
+| `_baseUrl` | `http://localhost:3000/api/` | শেষে `/` দিলে URL জোড়া সহজ (`{{_baseUrl}}v3/...`) |
+| `adminToken` | Admin JWT | লগিন API থেকে |
 
-```text
-{{baseUrl}}/v3/reference-shoe/question-category
-```
-
-**জুতা (রেফারেন্স শু) + ওই জুতার উত্তর বাঁধা:**
-
-```text
-{{baseUrl}}/v3/reference-shoe
-```
-
-`question-category` এর সব রাউটে **ADMIN** লগিন লাগে (`verifyUser("ADMIN")`)। সাধারণত:
+সব **ADMIN** রাউটে:
 
 ```http
-Authorization: Bearer <তোমার_টোকেন>
+Authorization: Bearer {{adminToken}}
 ```
+
+**প্রশ্ন ক্যাটালগ (অ্যাডমিন):**
+
+```text
+{{_baseUrl}}v3/reference-shoe/question-category/
+```
+
+**জুতা (রেফারেন্স শু):**
+
+```text
+{{_baseUrl}}v3/reference-shoe/
+```
+
+`_baseUrl` এ যদি শেষে `/` না থাকে, তবে ম্যানুয়ালি `{{_baseUrl}}/v3/...` লিখো।
 
 নিচের JSON ব্লকগুলো Postman এ **Body → raw → JSON** দিয়ে পাঠাবে, ছবি লাগলে **form-data**।
 
@@ -68,7 +75,7 @@ Authorization: Bearer <তোমার_টোকেন>
 | | |
 |--|--|
 | মেথড | `POST` |
-| URL | `{{baseUrl}}/v3/reference-shoe/question-category/create` |
+| URL | `{{_baseUrl}}v3/reference-shoe/question-category/create` |
 | বডি | `form-data` (ছবি চাইলে) |
 
 ফিল্ড: `name` (লাগবে), `description`, `parentId` (সাবক্যাট হলে), `file` কী নামে আপলোড সেটা রাউট অনুযায়ী — এখানে `image`।
@@ -93,7 +100,7 @@ Authorization: Bearer <তোমার_টোকেন>
 
 ### ২.২ ক্যাটাগরি লিস্ট
 
-`GET` `{{baseUrl}}/v3/reference-shoe/question-category/get-all`
+`GET` `{{_baseUrl}}v3/reference-shoe/question-category/get-all`
 
 - কোয়েরি **না** দিলে: শুধু **রুট** ক্যাটাগরি।
 - `?categoryId=প্যারেন্ট_আইডি` দিলে: ওই প্যারেন্টের **সরাসরি ছেলে** ক্যাটাগরি।
@@ -117,7 +124,7 @@ Authorization: Bearer <তোমার_টোকেন>
 
 ### ২.৩ ক্যাটাগরি মুছে ফেলা (নিচের সাবট্রি সহ)
 
-`DELETE` `.../delete-question-category`
+`DELETE` `{{_baseUrl}}v3/reference-shoe/question-category/delete-question-category`
 
 ```json
 { "categoryId": "clx_question_category_id" }
@@ -125,26 +132,35 @@ Authorization: Bearer <তোমার_টোকেন>
 
 ### ২.৪ ক্যাটাগরি আপডেট
 
-`PATCH` `.../update-question-category/:id` — `multipart`, `name` / `description` / `parentId` / `image`।
+`PATCH` `{{_baseUrl}}v3/reference-shoe/question-category/update-question-category/:id` — `multipart`, `name` / `description` / `parentId` / `image`।
 
 ---
 
 ## ৩) Postman — ক্যাটালগে প্রশ্ন ও অপশন
 
-### ৩.১ প্রশ্ন তৈরি (নেস্টেড JSON ট্রি)
+নিচের ব্লকগুলো **একই প্যাটার্ন**: শিরোনাম → মেথড → পূর্ণ URL → হেডার → বডি → সাধারণ রেসপন্স। Postman এ **New Request** খুলে **Body → raw → JSON** বেছে নিও (যেখানে JSON লিখা আছে)।
 
-`POST` `.../create-question` — `Content-Type: application/json`
+**প্রথমে ধরো:** ক্যাটাগরি তুমি আগেই তৈরি করেছ (`create` দিয়ে `categoryId` আছে) — যেমন `Massschafterstellung` বা `Komplettfertigung` এর মতো নাম হলেও **API তে লাগে আসল `id` স্ট্রিং**।
 
-- `categoryId` (আবশ্যক)
-- `questions[]` — প্রতিটিতে `text` (আবশ্যক), `objective`, `isRequired`, `isMultiSelect`
-- **ম্যানুয়ালি বড় গাছে একই চাইল্ড বাঁধতে:** টপ লেভেল আইটেমে `unlock_option_ids` (ইতিমধ্যে থাকা `question_option` id গুলো) বা পুরনো স্টাইল `parent_question_option_id` (একটা id)
-- প্রতি অপশনে `options[]`: `text`, `objective`, ভেতরে **`questions`** দিয়ে ফলো-আপ (নেস্টেড ভেতরে `unlock_option_ids` পাঠিও না)
+---
 
-**অনুরোধ বডির উদাহরণ:**
+### DEMO — ৩.১ নেস্টেড ট্রি দিয়ে প্রশ্ন তৈরি (`create-question`)
+
+ইউজ কেস: একটা রুট প্রশ্ন + অপশনের ভেতর ফলো-আপ প্রশ্ন।
+
+```
+POST
+{{_baseUrl}}v3/reference-shoe/question-category/create-question
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`  
+**Header:** `Content-Type: application/json`
+
+**Body:**
 
 ```json
 {
-  "categoryId": "clx_category_id",
+  "categoryId": "clx_category_id_from_create_category",
   "questions": [
     {
       "text": "Startfrage",
@@ -167,7 +183,13 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-**সফল উত্তর উদাহরণ `201`:** (`follow_up_questions` = পরের ধাপ; `unlock_option_ids` = কোন উত্তর দিয়ে খুলেছে)
+নোট:
+
+- `categoryId` বাধ্য।
+- টপ লেভেল `questions[]` তে `text` বাধ্য। অপশনের ভেতর **`questions`** দিয়ে ফলো-আপ যোগ।
+- বড় গাছ একসাথে বাঁধতে টপ আইটেমে `unlock_option_ids` (ইতিমধ্যে থাকা `question_option` id) বা পুরনো একক `parent_question_option_id` চলে।
+
+**Response `201` (আংশিক):**
 
 ```json
 {
@@ -198,16 +220,20 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-### ৩.২ গ্রাফ চেক (ডাটাবেজে লেখে না — দ্রুত)
+---
 
-`POST` `.../validate-questions-graph`
+### DEMO — ৩.২ গ্রাফ ভ্যালিডেট (`validate-questions-graph` — DB তে লেখে না)
 
-বডি **ঠিক `create-questions-graph` এর মতো**। HTTP সাধারণত **২০০**; দেখো `valid: true/false`।
+ইউজ কেস: `create-questions-graph` এর আগে চেক করবে সাইকেল / সংযোগ।
 
-- `valid: true` → পরে নিরাপদে `create-questions-graph` চালাতে পারো।
-- `valid: false` → `message` এ কারণ (সাইকেল, ডিসকানেক্ট, ইত্যাদি)।
+```
+POST
+{{_baseUrl}}v3/reference-shoe/question-category/validate-questions-graph
+```
 
-**টেস্ট বডি উদাহরণ:**
+**Header:** `Authorization: Bearer {{adminToken}}`
+
+**Body:** (ঠিক `create-questions-graph` এর মতো ফ্ল্যাট গ্রাফ)
 
 ```json
 {
@@ -227,7 +253,7 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-**ঠিক আছে → `200`:**
+**Response `200` ঠিক আছে:**
 
 ```json
 {
@@ -238,7 +264,7 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-**ভুল → এখনও `200`, তবে `valid: false`:**
+**Response `200` ভুল গ্রাফ (সাইকেল ইত্যাদি):** এখনও HTTP 200, কিন্তু `valid: false`।
 
 ```json
 {
@@ -248,13 +274,21 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-### ৩.৩ ফ্ল্যাট গ্রাফ তৈরি (`nextQuestionIds`)
+---
 
-`POST` `.../create-questions-graph`
+### DEMO — ৩.৩ ফ্ল্যাট গ্রাফ তৈরি (`create-questions-graph`, `nextQuestionIds`)
 
-প্রতিটা নোডের জন্য তুমি অস্থায়ী `id` দিও (যেমন `"q1"`, `"q2"`); অপশনে `nextQuestionIds: ["q2"]` দিয়ে এজ বাঁধো। চক্র চলবে না। একাধিক অপশন একই `q3` এ আসতে পারে (ছবির মতো many-to-one)।
+ইউজ কেস: অস্থায়ী `id` (`q1`, `q2`) + অপশনে `nextQuestionIds` দিয়ে এজ। চক্র চলবে না; অনেক অপশন একই টার্গেটে মিলতে পারে।
 
-**বডি উদাহরণ:**
+```
+POST
+{{_baseUrl}}v3/reference-shoe/question-category/create-questions-graph
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`  
+**Header:** `Content-Type: application/json`
+
+**Body:**
 
 ```json
 {
@@ -277,7 +311,7 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-**উত্তর `201`:**
+**Response `201` (আংশিক):**
 
 ```json
 {
@@ -290,18 +324,37 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-### ৩.৪ প্রশ্ন লোড
+---
 
-`GET` `.../get-question?categoryId=...`
+### DEMO — ৩.৪ ক্যাটাগরির সব প্রশ্ন পড়া (`get-question`)
 
-- সাধারণত ফ্ল্যাট `data.questions[]`, প্রতিটিতে `unlock_option_ids`, অপশনে `_hasNextQuestion`।
-- `format=nested` বা `view=tree` → গাছের আকার।
-- `optionId=...` → ওই উত্তরের নিচের সাবট্রি।
-- `fixOrders=1` → ধীর, DB তে ক্রম ঠিক করে।
+```
+GET
+{{_baseUrl}}v3/reference-shoe/question-category/get-question?categoryId=clx_category_id
+```
 
-সম্পূর্ণ নরমালাইজড লিস্টের জন্য আলাদা এন্ডপয়েন্ট: `GET` `.../get-questions-normalized?categoryId=...`
+**Header:** `Authorization: Bearer {{adminToken}}`
 
-**নরমালাইজড উত্তরের উদাহরণ `200`:**
+কোয়েরি ঐচ্ছিক:
+
+- `format=nested` বা `view=tree` → গাছ।
+- `optionId=...` → ওই অপশনের নিচের সাবট্রি।
+- `fixOrders=1` → ধীর, অর্ডার রিপেয়ার।
+
+**Response `200`:** সাধারণত ফ্ল্যাট `data.questions[]`, প্রতিটিতে `unlock_option_ids`, অপশনে `_hasNextQuestion`।
+
+---
+
+### DEMO — ৩.৫ নরমালাইজড পূর্ণ লিস্ট (`get-questions-normalized`)
+
+```
+GET
+{{_baseUrl}}v3/reference-shoe/question-category/get-questions-normalized?categoryId=clx_category_id
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`
+
+**Response `200` (উদাহরণ):**
 
 ```json
 {
@@ -331,11 +384,18 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-### ৩.৫ একটা প্রশ্ন
+---
 
-`GET` `.../get-single-question/:id`
+### DEMO — ৩.৬ একটা প্রশ্ন (`get-single-question`)
 
-**উত্তর উদাহরণ `200`:**
+```
+GET
+{{_baseUrl}}v3/reference-shoe/question-category/get-single-question/clx_question_id
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`
+
+**Response `200` (উদাহরণ):**
 
 ```json
 {
@@ -351,9 +411,19 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-### ৩.৬ অপশন যোগ
+---
 
-`POST` `.../add-options-to-question`
+### DEMO — ৩.৭ অপশন যোগ (`add-options-to-question`)
+
+```
+POST
+{{_baseUrl}}v3/reference-shoe/question-category/add-options-to-question
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`  
+**Header:** `Content-Type: application/json`
+
+**Body:**
 
 ```json
 {
@@ -363,9 +433,34 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-### ৩.৭ অপশন আপডেট (টেক্সট / ফলো-আপ রিঅর্ডার)
+**Response `200` (উদাহরণ):**
 
-`PATCH` `.../update-options`
+```json
+{
+  "success": true,
+  "message": "Option added to question",
+  "data": {
+    "id": "clx_new_option_id",
+    "questionId": "clx_question_id",
+    "text": "Neue Antwort",
+    "objective": null
+  }
+}
+```
+
+---
+
+### DEMO — ৩.৮ অপশন আপডেট (`update-options`)
+
+```
+PATCH
+{{_baseUrl}}v3/reference-shoe/question-category/update-options
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`  
+**Header:** `Content-Type: application/json`
+
+**Body:**
 
 ```json
 {
@@ -376,13 +471,49 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-### ৩.৮ অপশন মুছা
+---
 
-`DELETE` `.../delete-option` — বডিতে `optionIds` অ্যারে।
+### DEMO — ৩.৯ অপশন মুছা (`delete-option`)
 
-### ৩.৯ প্রশ্ন আপডেট (ক্রম / টেক্সট)
+```
+DELETE
+{{_baseUrl}}v3/reference-shoe/question-category/delete-option
+```
 
-`PATCH` `.../update-question`
+**Header:** `Authorization: Bearer {{adminToken}}`  
+**Header:** `Content-Type: application/json`
+
+**Body:**
+
+```json
+{
+  "optionIds": ["clx_question_option_id"]
+}
+```
+
+**Response `200` (উদাহরণ):**
+
+```json
+{
+  "success": true,
+  "message": "Options deleted",
+  "data": ["clx_question_option_id"]
+}
+```
+
+---
+
+### DEMO — ৩.১০ প্রশ্ন আপডেট — ক্রম / টেক্সট (`update-question`)
+
+```
+PATCH
+{{_baseUrl}}v3/reference-shoe/question-category/update-question
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`  
+**Header:** `Content-Type: application/json`
+
+**Body:**
 
 ```json
 {
@@ -393,11 +524,37 @@ Authorization: Bearer <তোমার_টোকেন>
 }
 ```
 
-একই প্রশ্নের **একাধিক `unlock_option_ids`** থাকলে কোন লিস্টে রিঅর্ডার করছ সেটা বোঝাতে **`optionId`** দরকার।
+একই প্রশ্নের একাধিক আনলক পথ থাকলে কোন লিস্টে রিঅর্ডার করছ, তা বোঝাতে `optionId` দরকার হতে পারে।
 
-### ৩.১০ প্রশ্ন মুছা
+---
 
-`DELETE` `.../delete-question` — `{ "questionId": "..." }`
+### DEMO — ৩.১১ প্রশ্ন মুছা (`delete-question`)
+
+```
+DELETE
+{{_baseUrl}}v3/reference-shoe/question-category/delete-question
+```
+
+**Header:** `Authorization: Bearer {{adminToken}}`  
+**Header:** `Content-Type: application/json`
+
+**Body:**
+
+```json
+{
+  "questionId": "clx_question_id"
+}
+```
+
+**Response `200` (উদাহরণ):**
+
+```json
+{
+  "success": true,
+  "message": "Question deleted",
+  "data": "clx_question_id"
+}
+```
 
 ---
 
@@ -405,7 +562,7 @@ Authorization: Bearer <তোমার_টোকেন>
 
 ### ৪.১ ক্রিয়েট
 
-`POST` `{{baseUrl}}/v3/reference-shoe/create` — `multipart` + `images`
+`POST` `{{_baseUrl}}v3/reference-shoe/create` — `multipart` + `images`
 
 `reference_shoe_questions` = ট্রি, ফর্মে স্ট্রিং JSON:
 
@@ -433,7 +590,7 @@ Authorization: Bearer <তোমার_টোকেন>
 
 ### ৪.২ একটা জুতা দেখা (`mcq` সহ)
 
-`GET` `{{baseUrl}}/v3/reference-shoe/get-single/:id`
+`GET` `{{_baseUrl}}v3/reference-shoe/get-single/:id`
 
 `data.mcq` = উত্তর দেওয়া গাছ; নোডে `unlock_option_ids`, `selectedOptionIds`, `children`।
 
@@ -465,16 +622,18 @@ Authorization: Bearer <তোমার_টোকেন>
 
 ### ৪.৩ আপডেট
 
-`PATCH` `{{baseUrl}}/v3/reference-shoe/update/:id` — ক্রিয়েটের মতোই প্যাটার্ন।
+`PATCH` `{{_baseUrl}}v3/reference-shoe/update/:id` — ক্রিয়েটের মতোই প্যাটার্ন।
 
 ---
 
-## ৫) Postman এনভায়রনমেন্ট দ্রুত সেটআপ
+## ৫) Postman এনভায়রনমেন্ট (আবার সংক্ষেপ)
+
+উপরে **সেকশন শুরুতেই** `_baseUrl` ও `adminToken` টেবিল দেওয়া আছে। এখানে শুধু মনে করিয়ে:
 
 | ভেরিয়েবল | উদাহরণ |
 |-----------|--------|
-| `baseUrl` | `http://localhost:3000` |
-| `adminToken` | JWT |
+| `_baseUrl` | `http://localhost:3000/api/` |
+| `adminToken` | Admin JWT |
 
 হেডার:
 
